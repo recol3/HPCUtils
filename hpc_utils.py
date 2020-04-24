@@ -11,6 +11,7 @@ import numpy as np
 max_cpus = 24
 max_mem = 125
 squeue_header_line = "             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)"
+node_list = ["node{:03d}".format(n) for n in range(1, 303)]
 
 
 def call_squeue():
@@ -28,6 +29,24 @@ def call_squeue_with_retry():
 
 def call_sbatch(sh_filename):
 	return subprocess.run(["sbatch", sh_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+
+def get_idle_nodes():
+	out_lines = call_squeue_with_retry()
+	running_lines = [line for line in out_lines if line.split()[4] == "R"]
+	nodes_in_use = set([line.split()[-1] for line in running_lines])
+	for node in nodes_in_use.copy():
+		if "[" in node:
+			nodes_in_use.remove(node)
+			ranges = node.replace("]", "[").split("[")[1].split(",")
+			for rg in ranges:
+				if "-" in rg:
+					range_start, range_end = map(int, rg.split("-"))
+				else:
+					range_start, range_end = int(rg), int(rg)
+				nodes_in_use.update(["node{:03d}".format(n) for n in range(range_start, range_end + 1)])
+	idle_nodes = [node for node in node_list if node not in nodes_in_use]
+	return idle_nodes
 
 
 def make_python_command(func_name, args, arg_names=None, imports=None, import_paths=None):

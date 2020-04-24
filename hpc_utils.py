@@ -13,6 +13,23 @@ max_mem = 125
 squeue_header_line = "             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)"
 
 
+def call_squeue():
+	return subprocess.run(["squeue"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout.splitlines()
+
+
+def call_squeue_with_retry():
+	out_lines = call_squeue()
+	while len(out_lines) < 1 or out_lines[0] != squeue_header_line:
+		# Error running squeue; wait and try again
+		time.sleep(5)
+		out_lines = call_squeue()
+	return out_lines
+
+
+def call_sbatch(sh_filename):
+	return subprocess.run(["sbatch", sh_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+
 def make_python_command(func_name, args, arg_names=None, imports=None, import_paths=None):
 	if arg_names is None:
 		arg_names = [None]*len(args)
@@ -75,7 +92,7 @@ def write_sh(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num_n
 
 def submit_sh(sh_filename):
 	while True:
-		out = subprocess.run(["sbatch", sh_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+		out = call_sbatch(sh_filename)
 		if not out.stderr:
 			job_id = int(out.stdout.split()[-1])
 			# Assumes stdout of successful job submission is "Submitted batch job <n>" where <n> is the job id.
@@ -144,12 +161,7 @@ def check_jobs_status(job_ids):
 		job_ids = [job_ids]
 	job_ids = [str(job_id) for job_id in job_ids]
 
-	out_lines = subprocess.run(["squeue"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout.splitlines()
-	while len(out_lines) < 1 or out_lines[0] != squeue_header_line:
-		# Error running squeue; wait and try again
-		time.sleep(5)
-		out_lines = subprocess.run(["squeue"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout.splitlines()
-
+	out_lines = call_squeue_with_retry()
 	jobs_in_progress_ids, jobs_in_progress_statuses = [], []
 	for line in out_lines[1:]:
 		tokens = line.split()

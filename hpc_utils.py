@@ -85,7 +85,7 @@ def make_python_command(func_name, args, arg_names=None, imports=None, import_pa
 	return python_command
 
 
-def write_sh(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num_nodes=1, num_cpus=max_cpus, total_mem=max_mem, exclusive=False, comp=True):
+def write_sh(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num_nodes=1, num_cpus=max_cpus, total_mem=max_mem, gpu=0, exclusive=False, comp=True):
 	if not comp and os.path.splitext(python_command.split()[0])[1] != ".py":
 		raise ValueError
 	sh_filename = job_name + ".sh"
@@ -97,6 +97,8 @@ def write_sh(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num_n
 		shf.write("#SBATCH --nodes={}\n".format(num_nodes))
 		shf.write("#SBATCH --cpus-per-task={}\n".format(num_cpus))
 		shf.write("#SBATCH --mem={}gb\n".format(total_mem))
+		if gpu != 0:
+			shf.write("#SBATCH --gres=gpu:{}\n".format(gpu))
 		if exclusive:
 			shf.write("#SBATCH --exclusive\n")
 		shf.write("#SBATCH --time={}:{}:{}\n".format(time_hrs, time_mins, time_secs))
@@ -123,7 +125,7 @@ def submit_sh(sh_filename):
 			time.sleep(5)
 
 
-def submit_job(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num_nodes=1, num_cpus=max_cpus, total_mem=max_mem, exclusive=False, comp=True):
+def submit_job(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num_nodes=1, num_cpus=max_cpus, total_mem=max_mem, gpu=0, exclusive=False, comp=True):
 	sh_filename = write_sh(
 		python_command=python_command,
 		job_name=job_name,
@@ -133,6 +135,7 @@ def submit_job(python_command, job_name, time_hrs, time_mins=0, time_secs=0, num
 		num_nodes=num_nodes,
 		num_cpus=num_cpus,
 		total_mem=total_mem,
+		gpu=gpu,
 		exclusive=exclusive,
 		comp=comp
 	)

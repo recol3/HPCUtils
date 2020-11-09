@@ -274,3 +274,25 @@ def clean_up(job_ids=None, sh_filenames=None):
 	if sh_filenames is not None:
 		for filename in sh_filenames:
 			os.remove(filename)
+
+
+def move_job_to_test(job_id):
+	scontrol_out = subprocess.run(["scontrol", "show", "job", str(job_id)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout.splitlines()
+	sh_filename = [line for line in scontrol_out if "Command=" in line][0].split("=")[-1]
+	with open(sh_filename, "r") as f:
+		sh_contents = [line.strip() for line in f]
+	sh_contents = [line for line in sh_contents if "--time=" not in line]
+	sh_contents.insert(2, "#SBATCH --time=4:0:0")
+	sh_contents.insert(2, "#SBATCH -p test")
+	with open(sh_filename, "w") as f:
+		for line in sh_contents:
+			f.write(line + "\n")
+	new_job_id = submit_sh(sh_filename)
+	subprocess.run(["scancel", str(job_id)])
+	return new_job_id
+
+
+def move_jobs_to_test(job_ids):
+	for job_id in job_ids:
+		new_id = move_job_to_test(job_id)
+		wait_for_jobs([new_id])

@@ -208,6 +208,18 @@ def num_jobs_in_progress(job_ids):
 	return sum(status is not None for status in check_jobs_status(job_ids))
 
 
+def num_jobs_running(job_ids, statuses=None):
+	if statuses is None:
+		statuses = check_jobs_status(job_ids)
+	return sum(status == "R" for status in statuses)
+
+
+def num_jobs_pending(job_ids, statuses=None):
+	if statuses is None:
+		statuses = check_jobs_status(job_ids)
+	return sum(status == "PD" for status in statuses)
+
+
 def wait_for_jobs(job_ids, check_interval=15):
 	done = False
 	while not done:

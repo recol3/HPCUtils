@@ -182,41 +182,46 @@ def wait_for_files(paths, check_interval=15):
 
 
 def check_jobs_status(job_ids):
-	if not isinstance(job_ids, (list, tuple, set, np.ndarray)):
+	if isinstance(job_ids, (int, str)):
 		job_ids = [job_ids]
+	elif not isinstance(job_ids, (list, tuple, set, range, np.ndarray)):
+		raise ValueError
 	job_ids = [str(job_id) for job_id in job_ids]
 
 	out_lines = call_squeue_with_retry()
-	jobs_in_progress_ids, jobs_in_progress_statuses = [], []
+	jobs_in_progress_ids, jobs_in_progress_statuses, jobs_in_progress_reasons = [], [], []
 	for line in out_lines[1:]:
 		tokens = line.split()
 		if tokens[0] in job_ids:
 			jobs_in_progress_ids.append(tokens[0])
 			jobs_in_progress_statuses.append(tokens[4])
+			jobs_in_progress_reasons.append(tokens[7])
 
-	statuses = []
+	statuses, reasons = [], []
 	for job_id in job_ids:
 		if job_id in jobs_in_progress_ids:
 			statuses.append(jobs_in_progress_statuses[jobs_in_progress_ids.index(job_id)])
+			reasons.append(jobs_in_progress_reasons[jobs_in_progress_ids.index(job_id)])
 		else:
 			statuses.append(None)
+			reasons.append(None)
 
-	return statuses
+	return statuses, reasons
 
 
 def num_jobs_in_progress(job_ids):
-	return sum(status is not None for status in check_jobs_status(job_ids))
+	return sum(status is not None for status in check_jobs_status(job_ids)[0])
 
 
 def num_jobs_running(job_ids, statuses=None):
 	if statuses is None:
-		statuses = check_jobs_status(job_ids)
+		statuses = check_jobs_status(job_ids)[0]
 	return sum(status == "R" for status in statuses)
 
 
 def num_jobs_pending(job_ids, statuses=None):
 	if statuses is None:
-		statuses = check_jobs_status(job_ids)
+		statuses = check_jobs_status(job_ids)[0]
 	return sum(status == "PD" for status in statuses)
 
 
@@ -236,7 +241,7 @@ def check_for_failed_jobs(job_ids, output_paths):
 	# A job is considered to have failed if its status is None (i.e. not running or pending) and its output file(s) don't exist
 	if len(output_paths) != len(job_ids):
 		raise ValueError
-	jobs_status = check_jobs_status(job_ids)  # This can be slow. It's possible for jobs to finish and write their output files during/after this but before checking output files in the next line, which is fine. But checking for output files first could result in jobs erroneously being considered to have failed because a job could finish and write its output after that check but before its status is checked.
+	jobs_status = check_jobs_status(job_ids)[0]  # This can be slow. It's possible for jobs to finish and write their output files during/after this but before checking output files in the next line, which is fine. But checking for output files first could result in jobs erroneously being considered to have failed because a job could finish and write its output after that check but before its status is checked.
 	jobs_success = check_files_done(output_paths)
 	failed_ids = [job_id for job_id, is_success, status in zip(job_ids, jobs_success, jobs_status) if status is None and not is_success]
 	return failed_ids
@@ -314,3 +319,29 @@ def move_jobs_to_test(job_ids):
 	for job_id in job_ids:
 		new_id = move_job_to_test(job_id)
 		wait_for_jobs([new_id])
+
+
+def hold_jobs(job_ids):
+	subprocess.run(["scontrol", "hold"] + [str(job_id) for job_id in job_ids])
+
+
+def release_jobs(job_ids):
+	subprocess.run(["scontrol", "release"] + [str(job_id) for job_id in job_ids])
+
+
+def throttle_jobs(job_ids, max_running, check_interval=30):
+	# NB: if a job is already running, holding it has no effect, so this will only affect jobs that are still pending
+	hold_jobs(job_ids)
+	while True:
+		statuses, reasons = check_jobs_status(job_ids)
+		holding = [job_id for job_id, reason in zip(job_ids, reasons) if reason == "(JobHeldUser)"]
+		n_running_or_pending = sum(status == "R" or (status == "PD" and reason != "(JobHeldUser)") for job_id, status, reason in zip(job_ids, statuses, reasons))
+		diff = max_running - n_running_or_pending
+		if diff > 0:
+			to_release = holding[:diff]
+			release_jobs(to_release)
+			print(str(datetime.datetime.now()) + ": Releasing job(s) " + ", ".join(str(job_id) for job_id in to_release))
+		if diff >= len(holding):
+			break
+		else:
+			time.sleep(check_interval)
